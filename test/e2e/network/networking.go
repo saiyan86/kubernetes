@@ -34,7 +34,7 @@ var _ = SIGDescribe("Networking", func() {
 	BeforeEach(func() {
 		// Assert basic external connectivity.
 		// Since this is not really a test of kubernetes in any way, we
-		// leave it as a pre-test assertion, rather than a Ginko test.
+		// leave it as a pre-test assertion, rather than a Ginkgo test.
 		By("Executing a successful http request from the external internet")
 		resp, err := http.Get("http://google.com")
 		if err != nil {
@@ -45,18 +45,22 @@ var _ = SIGDescribe("Networking", func() {
 		}
 	})
 
-	It("should provide Internet connection for containers [Feature:Networking-IPv4]", func() {
-		By("Running container which tries to ping 8.8.8.8")
-		framework.ExpectNoError(
-			framework.CheckConnectivityToHost(f, "", "ping-test", "8.8.8.8", framework.IPv4PingCommand, 30))
-	})
+	By("don't ping from azure")
+	if !framework.ProviderIs("azure") {
+		It("should provide Internet connection for containers [Feature:Networking-IPv4]", func() {
+			By("Running container which tries to ping 8.8.8.8")
+			framework.ExpectNoError(
+				framework.CheckConnectivityToHost(f, "", "ping-test", "8.8.8.8", framework.IPv4PingCommand, 30))
+		})
 
-	It("should provide Internet connection for containers [Feature:Networking-IPv6][Experimental]", func() {
-		By("Running container which tries to ping google.com")
-		framework.ExpectNoError(
-			framework.CheckConnectivityToHost(f, "", "ping-test", "google.com", framework.IPv6PingCommand, 30))
-	})
-
+		It("should provide Internet connection for containers [Feature:Networking-IPv6][Experimental]", func() {
+			By("Running container which tries to ping google.com")
+			framework.ExpectNoError(
+				framework.CheckConnectivityToHost(f, "", "ping-test", "google.com", framework.IPv6PingCommand, 30))
+		})
+	} else {
+		By("didn't ping azure")
+	}
 	// First test because it has no dependencies on variables created later on.
 	It("should provide unchanging, static URL paths for kubernetes api services", func() {
 		tests := []struct {
