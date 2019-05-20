@@ -2876,6 +2876,76 @@ func UnblockNetwork(from string, to string) {
 	}
 }
 
+func isElementOf(podUID types.UID, pods *v1.PodList) bool {
+	for _, pod := range pods.Items {
+		if pod.UID == podUID {
+			return true
+		}
+	}
+	return false
+}
+
+// timeout for proxy requests.
+const proxyTimeout = 2 * time.Minute
+
+// NodeProxyRequest performs a get on a node proxy endpoint given the nodename and rest client.
+func NodeProxyRequest(c clientset.Interface, node, endpoint string, port int) (restclient.Result, error) {
+	// proxy tends to hang in some cases when Node is not ready. Add an artificial timeout for this call.
+	// This will leak a goroutine if proxy hangs. #22165
+	var result restclient.Result
+	finished := make(chan struct{})
+	go func() {
+		result = c.CoreV1().RESTClient().Get().
+			Resource("nodes").
+			SubResource("proxy").
+			Name(fmt.Sprintf("%v:%v", node, port)).
+			Suffix(endpoint).
+			Do()
+
+		finished <- struct{}{}
+	}()
+	select {
+	case <-finished:
+		return result, nil
+	case <-time.After(proxyTimeout):
+		return restclient.Result{}, nil
+	}
+}
+
+// GetKubeletPods retrieves the list of pods on the kubelet
+func GetKubeletPods(c clientset.Interface, node string) (*v1.PodList, error) {
+	return getKubeletPods(c, node, "pods")
+}
+
+// GetKubeletRunningPods retrieves the list of running pods on the kubelet. The pods
+// includes necessary information (e.g., UID, name, namespace for
+// pods/containers), but do not contain the full spec.
+func GetKubeletRunningPods(c clientset.Interface, node string) (*v1.PodList, error) {
+	return getKubeletPods(c, node, "runningpods")
+}
+
+func getKubeletPods(c clientset.Interface, node, resource string) (*v1.PodList, error) {
+	result := &v1.PodList{}
+	client, err := NodeProxyRequest(c, node, resource, ports.KubeletPort)
+	if err != nil {
+		return &v1.PodList{}, err
+	}
+	if err = client.Into(result); err != nil {
+		return &v1.PodList{}, err
+	}
+	return result, nil
+}
+
+// IPProtocol is the type to hold IP protocol.
+type IPProtocol string
+
+const (
+	// IPv4 stands for IP protocol version 4.
+	IPv4 IPProtocol = "IPv4"
+	// IPv6 stands for IP protocol version 6.
+	IPv6 IPProtocol = "IPv6"
+)
+
 // PingCommand is the type to hold ping command.
 type PingCommand string
 
@@ -2886,19 +2956,44 @@ const (
 	IPv6PingCommand PingCommand = "ping6"
 )
 
+// NcCommand is the type to hold nc command
+type NcCommand string
+
+const (
+	// IPv4NcCommand is a nc command for IPv4
+	IPv4NcCommand NcCommand = "nc"
+)
+
 // CheckConnectivityToHost launches a pod to test connectivity to the specified
 // host. An error will be returned if the host is not reachable from the pod.
 //
 // An empty nodeName will use the schedule to choose where the pod is executed.
-func CheckConnectivityToHost(f *Framework, nodeName, podName, host string, pingCmd PingCommand, timeout int) error {
+func CheckConnectivityToHost(f *Framework, nodeName, podName, host string, ipProto IPProtocol, timeout int) error {
 	contName := fmt.Sprintf("%s-container", podName)
 
-	command := []string{
-		string(pingCmd),
-		"-c", "3", // send 3 pings
-		"-W", "2", // wait at most 2 seconds for a reply
-		"-w", strconv.Itoa(timeout),
-		host,
+	var command []string
+	if !ProviderIs("azure") {
+		command = []string{
+			string(IPv4PingCommand),
+			"-c", "3", // send 3 pings
+			"-W", "2", // wait at most 2 seconds for a reply
+			"-w", strconv.Itoa(timeout),
+			host,
+		}
+		if ipProto == IPv6 {
+			command[0] = string(IPv6PingCommand)
+		}
+	} else {
+		command = []string{
+			string(IPv4NcCommand),
+			"-w", strconv.Itoa(timeout),
+			host,
+			"53",
+		}
+		if ipProto == IPv6 {
+			Logf("Skipping IPv6 CheckConnectivityToHost test on Azure.")
+			return nil
+		}
 	}
 
 	pod := &v1.Pod{
