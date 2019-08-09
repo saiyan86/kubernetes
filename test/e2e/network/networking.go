@@ -45,18 +45,22 @@ var _ = SIGDescribe("Networking", func() {
 			e2elog.Failf("Unexpected error code, expected 200, got, %v (%v)", resp.StatusCode, resp)
 		}
 	})
+	
+	if framework.TestContext.IPFamily == framework.IPv4 {
+		ginkgo.It("should provide Internet connection for containers [Feature:Networking-IPv4]", func() {
+			ginkgo.By("Running container which tries to ping 8.8.8.8")
+			framework.ExpectNoError(
+				framework.CheckConnectivityToHost(f, "", "connectivity-test", "8.8.8.8", 53, 30))
+		})
+	}
 
-	ginkgo.It("should provide Internet connection for containers [Feature:Networking-IPv4]", func() {
-		ginkgo.By("Running container which tries to ping 8.8.8.8")
-		framework.ExpectNoError(
-			framework.CheckConnectivityToHost(f, "", "ping-test", "8.8.8.8", framework.IPv4, 30))
-	})
-
-	ginkgo.It("should provide Internet connection for containers [Feature:Networking-IPv6][Experimental]", func() {
-		ginkgo.By("Running container which tries to ping 2001:4860:4860::8888")
-		framework.ExpectNoError(
-			framework.CheckConnectivityToHost(f, "", "ping-test", "2001:4860:4860::8888", framework.IPv6, 30))
-	})
+	if framework.TestContext.IPFamily == framework.IPv6 {
+		ginkgo.It("should provide Internet connection for containers [Feature:Networking-IPv6][Experimental]", func() {
+			ginkgo.By("Running container which tries to ping 2001:4860:4860::8888")
+			framework.ExpectNoError(
+				framework.CheckConnectivityToHost(f, "", "connectivity-test", "2001:4860:4860::8888", 53, 30))
+		})
+	}
 
 	// First test because it has no dependencies on variables created later on.
 	ginkgo.It("should provide unchanging, static URL paths for kubernetes api services", func() {

@@ -208,6 +208,9 @@ var (
 	// BusyBoxImage is the image URI of BusyBox.
 	BusyBoxImage = imageutils.GetE2EImage(imageutils.BusyBox)
 
+	// AgnHostImage is the image URI of AgnHost
+	AgnHostImage = imageutils.GetE2EImage(imageutils.Agnhost)
+
 	// For parsing Kubectl version for version-skewed testing.
 	gitVersionRegexp = regexp.MustCompile("GitVersion:\"(v.+?)\"")
 
@@ -2941,9 +2944,9 @@ type IPProtocol string
 
 const (
 	// IPv4 stands for IP protocol version 4.
-	IPv4 IPProtocol = "IPv4"
+	IPv4 IPProtocol = "ipv4"
 	// IPv6 stands for IP protocol version 6.
-	IPv6 IPProtocol = "IPv6"
+	IPv6 IPProtocol = "ipv6"
 )
 
 // PingCommand is the type to hold ping command.
@@ -2956,43 +2959,37 @@ const (
 	IPv6PingCommand PingCommand = "ping6"
 )
 
-// NcCommand is the type to hold nc command
-type NcCommand string
+// NetcatCommand is the type to hold nc command
+type NetcatCommand string
 
 const (
-	// IPv4NcCommand is a nc command for IPv4
-	IPv4NcCommand NcCommand = "nc"
+	// NcCommand is a nc command for both IPv4 and IPv6.
+	NcCommand NetcatCommand = "nc"
 )
 
 // CheckConnectivityToHost launches a pod to test connectivity to the specified
 // host. An error will be returned if the host is not reachable from the pod.
 //
 // An empty nodeName will use the schedule to choose where the pod is executed.
-func CheckConnectivityToHost(f *Framework, nodeName, podName, host string, ipProto IPProtocol, timeout int) error {
+func CheckConnectivityToHost(f *Framework, nodeName, podName, host string, hostPort, timeout int) error {
 	contName := fmt.Sprintf("%s-container", podName)
 
 	var command []string
-	if !ProviderIs("azure") {
+	if TestContext.IPFamily == IPv4 {
 		command = []string{
-			string(IPv4PingCommand),
-			"-c", "3", // send 3 pings
-			"-W", "2", // wait at most 2 seconds for a reply
+			string(NcCommand),
+			"-vz",
 			"-w", strconv.Itoa(timeout),
 			host,
-		}
-		if ipProto == IPv6 {
-			command[0] = string(IPv6PingCommand)
+			strconv.Itoa(hostPort),
 		}
 	} else {
 		command = []string{
-			string(IPv4NcCommand),
+			string(NcCommand),
+			"-6vz",
 			"-w", strconv.Itoa(timeout),
 			host,
-			"53",
-		}
-		if ipProto == IPv6 {
-			Logf("Skipping IPv6 CheckConnectivityToHost test on Azure.")
-			return nil
+			strconv.Itoa(hostPort),
 		}
 	}
 
@@ -3004,7 +3001,7 @@ func CheckConnectivityToHost(f *Framework, nodeName, podName, host string, ipPro
 			Containers: []v1.Container{
 				{
 					Name:    contName,
-					Image:   BusyBoxImage,
+					Image:   AgnHostImage,
 					Command: command,
 				},
 			},
